@@ -72,9 +72,8 @@ a {
 <form action="/action_page.php">
   <div class="container">
     <h1>Register</h1>
-    <p>Please fill in this form to create an account.</p>
+    <p>My name is Het.</p>
     <hr>
-
     <label for="My Name is Het"><b>Email</b></label>
     <input type="text" placeholder="Enter Email" name="email" id="email" required>
 
