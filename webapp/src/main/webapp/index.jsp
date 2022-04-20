@@ -71,7 +71,7 @@ a {
 
 <form action="/action_page.php">
   <div class="container">
-    <h1>Register</h1>
+    <h1>Chal ne ave Jati Reh J</h1>
     <p>My name is Het.</p>
     <hr>
     <label for="My Name is Het"><b>Email</b></label>
