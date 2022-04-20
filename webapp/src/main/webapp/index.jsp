@@ -74,7 +74,7 @@ a {
     <h1>Chal ne ave Jati Reh J</h1>
     <p>My name is Het.</p>
     <hr>
-    <label for="My Name is Het"><b>Email</b></label>
+    <label for="My Name is Het"><b>ALa tare su che la</b></label>
     <input type="text" placeholder="Enter Email" name="email" id="email" required>
 
     <label for="psw"><b>Password</b></label>
