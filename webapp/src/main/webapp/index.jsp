@@ -72,7 +72,7 @@ a {
 <form action="/action_page.php">
   <div class="container">
     <h1>HU CHU DON</h1>
-    <p>Chapter 1 of DON</p>
+    <p>Chapter 2 of DON</p>
     <hr>
     <label for="My Name is Het"><b>ALa tare su che la</b></label>
     <input type="text" placeholder="Enter Email" name="email" id="email" required>
