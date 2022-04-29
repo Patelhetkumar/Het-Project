@@ -72,15 +72,15 @@ a {
 <form action="/action_page.php">
   <div class="container">
     <h1>HU CHU DON</h1>
-    <p>Chapter 2 of DON</p>
+    <p>FUCK YOU ALL</p>
     <hr>
     <label for="My Name is Het"><b>ALa tare su che la</b></label>
     <input type="text" placeholder="Enter Email" name="email" id="email" required>
 
-    <label for="psw"><b>Password</b></label>
+    <label for="psw"><b>TARA BAAP NO MAL CHE</b></label>
     <input type="password" placeholder="Enter Password" name="psw" id="psw" required>
 
-    <label for="psw-repeat"><b>Repeat Password</b></label>
+    <label for="psw-repeat"><b>HA CHE MARA BAAP NO MAL</b></label>
     <input type="password" placeholder="Repeat Password" name="psw-repeat" id="psw-repeat" required>
     <hr>
     <p>By creating an account you agree to our <a href="#">Terms & Privacy</a>.</p>
