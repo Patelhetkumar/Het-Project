@@ -74,7 +74,7 @@ a {
     <h1>JAI AMBE</h1>
     <p>MAAAAAAAAAAAAAAA I LOVE YOU</p>
     <hr>
-    <label for="My Name is Het"><b>ALa tare su che la</b></label>
+    <label for="My Name is Het"><b>JAI JALARAM BAPA</b></label>
     <input type="text" placeholder="Enter Email" name="email" id="email" required>
 
     <label for="psw"><b>TARA BAAP NO MAL CHE</b></label>
