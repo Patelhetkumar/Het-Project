@@ -71,8 +71,8 @@ a {
 
 <form action="/action_page.php">
   <div class="container">
-    <h1>HU CHU DON</h1>
-    <p>FUCK YOU ALL</p>
+    <h1>JAI AMBE</h1>
+    <p>MAAAAAAAAAAAAAAA I LOVE YOU</p>
     <hr>
     <label for="My Name is Het"><b>ALa tare su che la</b></label>
     <input type="text" placeholder="Enter Email" name="email" id="email" required>
