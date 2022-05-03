@@ -83,7 +83,7 @@ a {
     <label for="psw-repeat"><b>HA CHE MARA BAAP NO MAL</b></label>
     <input type="password" placeholder="Repeat Password" name="psw-repeat" id="psw-repeat" required>
     <hr>
-    <p>By creating an account you are my bitch<a href="#">Terms & Privacy</a>.</p>
+    <p>my Place my RULE<a href="#">Terms & Privacy</a>.</p>
 
     <button type="submit" class="registerbtn">Register</button>
   </div>
