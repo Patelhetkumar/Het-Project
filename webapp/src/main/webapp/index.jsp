@@ -77,7 +77,7 @@ a {
     <label for="My Name is Het"><b>JAI JALARAM BAPA</b></label>
     <input type="text" placeholder="Enter Email" name="email" id="email" required>
 
-    <label for="psw"><b>TARA BAAP NO MAL CHE</b></label>
+    <label for="psw"><b>My name is het</b></label>
     <input type="password" placeholder="Enter Password" name="psw" id="psw" required>
 
     <label for="psw-repeat"><b>HA CHE MARA BAAP NO MAL</b></label>
