@@ -188,19 +188,25 @@ print("\n🔎 DEBUG: Checking normalized sets")
 print(f"Sorted EFS Database Cells: {expected_cells_cleaned}")
 print(f"Sorted Ax Inventory Cells: {actual_cells_cleaned}")
 
-# **Only Report Differences, No Set Operations**
-if set(expected_cells_cleaned) != set(actual_cells_cleaned):
+# **Final Explicit Check Before Reporting Mismatch**
+if expected_cells_cleaned == actual_cells_cleaned:
+    print(f"✅ No mismatch found for {server} in group {group} - Data is IDENTICAL after normalization.")
+else:
+    # Compute missing and extra cells
+    missing_cells = set(expected_cells_cleaned) - set(actual_cells_cleaned)
+    extra_cells = set(actual_cells_cleaned) - set(expected_cells_cleaned)
+
     print(f"\n🔍 Mismatch for server: {server} in group {group}:")
     print("===============================================")
     print(f"  ✅ EFS Database: {expected_cells_cleaned}")
     print(f"  📂 Ax Inventory: {actual_cells_cleaned}")
 
-    common_cells = set(expected_cells_cleaned) & set(actual_cells_cleaned)
-    if common_cells:
-        print(f"  🔵 Common Cells: {sorted(common_cells)}")
+    if missing_cells:
+        print(f"  ❌ Cells in the EFS Database but not in Ax inventory: {sorted(missing_cells)}")
 
-    if set(expected_cells_cleaned) - set(actual_cells_cleaned):
-        print(f"  ❌ Cells in the EFS Database but not in Ax inventory: {sorted(set(expected_cells_cleaned) - set(actual_cells_cleaned))}")
+    if extra_cells:
+        print(f"  ⚠ Cells in the Ax inventory but not in the EFS Database: {sorted(extra_cells)}")
+
 
     if set(actual_cells_cleaned) - set(expected_cells_cleaned):
         print(f"  ⚠ Cells in the Ax inventory but not in the EFS Database: {sorted(set(actual_cells_cleaned) - set(expected_cells_cleaned))}")
