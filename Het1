@@ -173,27 +173,30 @@ validate_inventory_with_efs(inventory_file, efs_file)
 
 
 ######################################
-# Normalize cell names for consistent comparison
-expected_cells_cleaned = {" ".join(sorted(cell.lower().strip().split())) for cell in expected_cells_cleaned}
-actual_cells_cleaned = {" ".join(sorted(cell.lower().strip().split())) for cell in actual_cells_cleaned}
+# Normalize and sort cell names for consistent comparison
+expected_cells_cleaned = sorted({cell.lower().strip() for cell in expected_cells})
+actual_cells_cleaned = sorted({cell.lower().strip() for cell in actual_cells})
 
-# Debugging Output: Print sorted versions to see real differences
+# Debugging Output: Show sorted values
 print("\n🔎 DEBUG: Checking normalized sets")
-print(f"Sorted EFS Database Cells: {sorted(expected_cells_cleaned)}")
-print(f"Sorted Ax Inventory Cells: {sorted(actual_cells_cleaned)}")
+print(f"Sorted EFS Database Cells: {expected_cells_cleaned}")
+print(f"Sorted Ax Inventory Cells: {actual_cells_cleaned}")
 
 # Compute missing and extra cells
-missing_cells = expected_cells_cleaned - actual_cells_cleaned
-extra_cells = actual_cells_cleaned - expected_cells_cleaned
+missing_cells = set(expected_cells_cleaned) - set(actual_cells_cleaned)
+extra_cells = set(actual_cells_cleaned) - set(expected_cells_cleaned)
 
-# Debugging Output to verify correctness
-print(f"\n🔍 Mismatch for server: {server} in group {group}:")
-print("===============================================")
-print(f"  ✅ EFS Database: {expected_cells_cleaned}")
-print(f"  📂 Ax inventory: {actual_cells_cleaned}")
+# New Debugging Output: Show which values are mismatched
+if missing_cells or extra_cells:
+    print(f"\n🔍 Mismatch for server: {server} in group {group}:")
+    print("===============================================")
+    print(f"  ✅ EFS Database: {expected_cells_cleaned}")
+    print(f"  📂 Ax Inventory: {actual_cells_cleaned}")
 
-if missing_cells:
-    print(f"  ❌ Cells in the EFS Database but not in Ax inventory: {missing_cells}")
+    if missing_cells:
+        print(f"  ❌ Cells in the EFS Database but not in Ax inventory: {sorted(missing_cells)}")
 
-if extra_cells:
-    print(f"  ⚠ Cells in the Ax inventory but not in the EFS Database: {extra_cells}")
+    if extra_cells:
+        print(f"  ⚠ Cells in the Ax inventory but not in the EFS Database: {sorted(extra_cells)}")
+else:
+    print(f"✅ No mismatch found for {server} - Data is identical after normalization.")
