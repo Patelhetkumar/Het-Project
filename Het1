@@ -66,68 +66,69 @@ def normalize_server(server_name):
 # ----------------- Compare EFS & AX Inventory -----------------
 
 def compare_cells(efsservers_data, inventory_data):
-    """Compare expected and actual cells, printing discrepancies to console."""
-    mismatches = []
-    
-    # Find missing and extra servers
+    """Compare expected and actual cells and print discrepancies to console."""
     missing_servers = list(set(efsservers_data.keys()) - set(inventory_data.keys()))
     extra_servers = list(set(inventory_data.keys()) - set(efsservers_data.keys()))
 
     if missing_servers:
-        print("\n🔴 Missing servers in inventory:")
+        print("\nMissing servers in inventory:")
+        print("==============================================")
         for server in missing_servers:
-            print(f"   - {server}")
+            print(f" {server}")
 
     if extra_servers:
-        print("\n⚠️ Servers found in ax_inventories but not in EFS Database:")
+        print("\nServers found in ax_inventories but not in Efs Database or efsserver.txt:")
+        print("==============================================")
         for server in extra_servers:
-            print(f"   - {server}")
+            print(f" {server}")
 
-    # Compare individual servers
     for server, expected_cells in efsservers_data.items():
-        actual_cells = inventory_data.get(server, set())
-
-        # Normalize both sets before comparison
+        # Normalize expected and actual cells before comparison
+        actual_cells = {normalize_cell(c) for c in inventory_data.get(server, set())}
         expected_cells = {normalize_cell(c) for c in expected_cells}
-        actual_cells = {normalize_cell(c) for c in actual_cells}
 
-        missing_cells = expected_cells - actual_cells
-        extra_cells = actual_cells - expected_cells
+        if not actual_cells:
+            print(f"\nMismatch for server: {server}:")
+            print(f" Efs Database: {expected_cells}")
+            print(f" Ax inventory: (New Server - Not Found in Inventory)")
+        elif expected_cells != actual_cells:
+            missing_cells = expected_cells - actual_cells
+            extra_cells = actual_cells - expected_cells
 
-        if missing_cells or extra_cells:
-            mismatches.append({
-                "Server": server,
-                "Missing Cells": ", ".join(missing_cells) if missing_cells else "None",
-                "Extra Cells": ", ".join(extra_cells) if extra_cells else "None"
-            })
+            print(f"\n{server}:")
+            print(f" Efs Database: {expected_cells}")
+            print(f" Ax inventory: {actual_cells}")
 
-            print(f"\n🔹 {server} Discrepancy in Cells:")
-            print(f"   - EFS Database: {expected_cells}")
-            print(f"   - AX Inventory: {actual_cells}")
             if missing_cells:
-                print(f"   - ❌ Missing in AX: {missing_cells}")
+                print(f" Cells in the Efs Database but not in the Ax inventory: {missing_cells}")
             if extra_cells:
-                print(f"   - ❗ Extra in AX: {extra_cells}")
+                print(f" Cells in the Ax inventory but not in the Efs Database: {extra_cells}")
 
-    return mismatches
+    # Servers group validation
+    if mismatches_servergroup:
+        print("\nServers group validation:")
+        print("==============================================")
+        print("\n".join(mismatches_servergroup))
+    else:
+        print("==============================================")
+        print("All servers are in the correct groups.\n")
 
-# ----------------- Main Function -----------------
+    # Control group validation
+    if mismatches:
+        print("\nControl Group Validation:")
+        print("==============================================")
+        print("\n".join(mismatches))
+    else:
+        print("==============================================")
+        print("Controlgroup A and B are correctly balanced for high availability.\n")
+
 
 def validate_inventory_with_efs(inventory_file, efs_file):
     """Wrapper function to parse files and compare inventory with EFS."""
-    efsservers_data = parse_efs_servers(efs_file)
+    efsservers_data = parse_efs_servers(efs_file)  # Fixed function name
     inventory_data = parse_inventory(inventory_file)
+    compare_cells(efsservers_data, inventory_data)
 
-    mismatches = compare_cells(efsservers_data, inventory_data)
 
-    if not mismatches:
-        print("✅ No mismatches found. The EFS database and AX inventory are aligned.")
-
-# ----------------- Run the Validation -----------------
-
-# Define paths to your files
-inventory_file_path = "path/to/inventory.prod.yaml"  # Replace with actual path
-efs_file_path = "path/to/efs_database.txt"  # Replace with actual path
-
-# Run the validation process
-validate_inventory_with_efs(inventory_file_path, efs_file_path)
+# Call the function
+validate_inventory_with_efs(inventory_file, efs_file)
