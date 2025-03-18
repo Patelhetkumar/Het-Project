@@ -83,21 +83,23 @@ def compare_cells(efsservers_data, inventory_data):
             print(f" {server}")
 
     for server, expected_cells in efsservers_data.items():
+        group = determine_group_from_pattern(server)  # Extract group name
+        if not group:
+            print(f"Server {server} does not match any known group.")
+            continue
+
         # Normalize expected and actual cells before comparison
         actual_cells = {normalize_cell(c) for c in inventory_data.get(server, set())}
         expected_cells = {normalize_cell(c) for c in expected_cells}
 
-        if not actual_cells:
-            print(f"\nMismatch for server: {server}:")
-            print(f" Efs Database: {expected_cells}")
-            print(f" Ax inventory: (New Server - Not Found in Inventory)")
-        elif expected_cells != actual_cells:
+        # Formatting the output as per your required format
+        print(f"\n{server} in group {group}:")
+        print(f" Efs Database: {expected_cells}")
+        print(f" Ax inventory: {actual_cells}")
+
+        if expected_cells != actual_cells:
             missing_cells = expected_cells - actual_cells
             extra_cells = actual_cells - expected_cells
-
-            print(f"\n{server}:")
-            print(f" Efs Database: {expected_cells}")
-            print(f" Ax inventory: {actual_cells}")
 
             if missing_cells:
                 print(f" Cells in the Efs Database but not in the Ax inventory: {missing_cells}")
