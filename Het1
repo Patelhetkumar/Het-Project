@@ -1,5 +1,3 @@
-import yaml
-
 def parse_inventory(file_path):
     """Parse inventory-prod.yaml to extract actual cells for servers, avoiding duplicates."""
     with open(file_path, "r") as file:
@@ -11,83 +9,17 @@ def parse_inventory(file_path):
     all_groups = inventory.get('all', {}).get('children', {})
 
     for group, group_data in all_groups.items():
-        if isinstance(group_data, dict) and "hosts" in group_data:
+        if not isinstance(group_data, dict):
+            continue  # Skip non-dict entries
+
+        if "hosts" in group_data and isinstance(group_data["hosts"], dict):
             for server, server_info in group_data["hosts"].items():
                 if isinstance(server_info, dict):
-                    # Normalize and extract cells
+                    # Normalize cell names before adding
                     cells = {normalize_cell(c) for c in server_info.get("cells", [])}
 
                     if server not in processed_hosts:
                         inventory_data[server] = cells
                         processed_hosts.add(server)
 
-        # Handle 'children' nested groups
-        if "children" in group_data:
-            for child_group, child_info in group_data["children"].items():
-                if isinstance(child_info, dict) and "hosts" in child_info:
-                    for server, server_info in child_info["hosts"].items():
-                        if isinstance(server_info, dict):
-                            # Normalize and extract cells
-                            cells = {normalize_cell(c) for c in server_info.get("cells", [])}
-
-                            if server not in processed_hosts:
-                                inventory_data[server] = cells
-                                processed_hosts.add(server)
-
     return inventory_data
-####################
-
-def compare_cells(efsservers_data, inventory_data):
-    """Compare expected and actual cells and print discrepancies to console."""
-
-    missing_servers = list(set(efsservers_data.keys()) - set(inventory_data.keys()))
-    extra_servers = list(set(inventory_data.keys()) - set(efsservers_data.keys()))
-
-    if missing_servers:
-        print("\nMissing servers in inventory:")
-        print("==============================================")
-        for server in missing_servers:
-            print(f" {server}")
-
-    if extra_servers:
-        print("\nServers found in ax_inventories but not in Efs Database or efsserver.txt:")
-        print("==============================================")
-        for server in extra_servers:
-            print(f" {server}")
-
-    for server, expected_cells in efsservers_data.items():
-        group = determine_group_from_pattern(server)  # Ensure this function is correct
-        if not group:
-            print(f"Server {server} does not match any known group.")
-            continue
-
-        # Normalize expected and actual cells before comparison
-        actual_cells = {normalize_cell(c) for c in inventory_data.get(server, set())}
-        expected_cells = {normalize_cell(c) for c in expected_cells}
-
-        print(f"\n{server} in group {group}:")
-        print(f" Efs Database: {expected_cells}")
-        print(f" Ax inventory: {actual_cells}")
-
-        if expected_cells != actual_cells:
-            missing_cells = expected_cells - actual_cells
-            extra_cells = actual_cells - expected_cells
-
-            if missing_cells:
-                print(f" Cells in the Efs Database but not in the Ax inventory: {missing_cells}")
-            if extra_cells:
-                print(f" Cells in the Ax inventory but not in the Efs Database: {extra_cells}")
-
----
-### **Final Fix: Validate Everything**
-Modify your `validate_inventory_with_efs()` function **to ensure the correct function is called**:
-
-```python
-def validate_inventory_with_efs(inventory_file, efs_file):
-    """Wrapper function to parse files and compare inventory with EFS."""
-    efsservers_data = parse_efs_servers(efs_file)  # ✅ Correct function name
-    inventory_data = parse_inventory(inventory_file)
-    compare_cells(efsservers_data, inventory_data)
-
-# Call the function
-validate_inventory_with_efs(inventory_file, efs_file)
