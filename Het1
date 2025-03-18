@@ -1,3 +1,36 @@
+import yaml
+import re
+import os
+import pandas as pd
+
+# ----------------- Normalization Function -----------------
+def normalize_cell(cell_name):
+    """Normalize cell names to remove inconsistencies (spaces, domain variations)."""
+    cell_name = cell_name.strip()  # Remove spaces
+    cell_name = re.sub(r'\s+', '', cell_name)  # Remove internal spaces
+    cell_name = cell_name.replace(".m1.com", ".ml.com")  # Standardize domain variations
+    return cell_name.lower()  # Convert to lowercase (if case sensitivity isn't required)
+
+# ----------------- Parsing EFS Database -----------------
+def parse_efs_servers(file_path):
+    """Extract server names and expected cells from efsservers.txt."""
+    server_data = {}
+
+    with open(file_path, "r") as file:
+        for line in file:
+            parts = [p.strip() for p in line.strip().split(",")]  # Strip spaces
+            if len(parts) < 2:
+                continue  # Skip malformed lines
+
+            server, cell = parts[0], normalize_cell(parts[1])  # Normalize names
+
+            if server not in server_data:
+                server_data[server] = set()
+            server_data[server].add(cell)
+
+    return server_data
+
+# ----------------- Parsing AX Inventory -----------------
 def parse_inventory(file_path):
     """Parse inventory-prod.yaml to extract actual cells for servers, avoiding duplicates."""
     with open(file_path, "r") as file:
@@ -10,12 +43,12 @@ def parse_inventory(file_path):
 
     for group, group_data in all_groups.items():
         if not isinstance(group_data, dict):
-            continue  # Skip non-dict entries
+            continue  # Skip invalid data
 
         if "hosts" in group_data and isinstance(group_data["hosts"], dict):
             for server, server_info in group_data["hosts"].items():
                 if isinstance(server_info, dict):
-                    # Normalize cell names before adding
+                    # Normalize cell names
                     cells = {normalize_cell(c) for c in server_info.get("cells", [])}
 
                     if server not in processed_hosts:
@@ -23,3 +56,59 @@ def parse_inventory(file_path):
                         processed_hosts.add(server)
 
     return inventory_data
+
+# ----------------- Comparison Function -----------------
+def compare_cells(efsservers_data, inventory_data):
+    """Compare expected and actual cells and print discrepancies to console."""
+    missing_servers = list(set(efsservers_data.keys()) - set(inventory_data.keys()))
+    extra_servers = list(set(inventory_data.keys()) - set(efsservers_data.keys()))
+
+    if missing_servers:
+        print("\nMissing servers in inventory:")
+        print("=======================================")
+        for server in missing_servers:
+            print(f" {server}")
+
+    if extra_servers:
+        print("\nServers found in ax_inventories but not in EFS Database or efsserver.txt:")
+        print("=======================================")
+        for server in extra_servers:
+            print(f" {server}")
+
+    for server, expected_cells in efsservers_data.items():
+        # Normalize expected and actual cells before comparison
+        actual_cells = {normalize_cell(c) for c in inventory_data.get(server, set())}
+        expected_cells = {normalize_cell(c) for c in expected_cells}
+
+        if not actual_cells:
+            print(f"\nMismatch for server: {server}:")
+            print(f" EFS Database: {expected_cells}")
+            print(f" Ax inventory: (New Server - Not Found in Inventory)")
+        elif expected_cells != actual_cells:
+            missing_cells = expected_cells - actual_cells
+            extra_cells = actual_cells - expected_cells
+
+            print(f"\n{server}:")
+            print(f" EFS Database: {expected_cells}")
+            print(f" Ax inventory: {actual_cells}")
+
+            if missing_cells:
+                print(f" Cells in the EFS Database but not in the Ax inventory: {missing_cells}")
+            if extra_cells:
+                print(f" Cells in the Ax inventory but not in the EFS Database: {extra_cells}")
+
+# ----------------- Validation Function -----------------
+def validate_inventory_with_efs(inventory_file, efs_file):
+    """Wrapper function to parse files and compare inventory with EFS."""
+    efsservers_data = parse_efs_servers(efs_file)  # Fixed function name
+    inventory_data = parse_inventory(inventory_file)
+
+    compare_cells(efsservers_data, inventory_data)
+
+# ----------------- Run the Validation -----------------
+# Define paths to your files
+inventory_file = "path/to/inventory.prod.yaml"  # Replace with actual path
+efs_file = "path/to/efs_database.txt"  # Replace with actual path
+
+# Call the function
+validate_inventory_with_efs(inventory_file, efs_file)
