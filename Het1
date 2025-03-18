@@ -1,3 +1,5 @@
+import yaml
+
 def parse_inventory(file_path):
     """Parse inventory-prod.yaml to extract actual cells for servers, avoiding duplicates."""
     with open(file_path, "r") as file:
@@ -12,18 +14,32 @@ def parse_inventory(file_path):
         if isinstance(group_data, dict) and "hosts" in group_data:
             for server, server_info in group_data["hosts"].items():
                 if isinstance(server_info, dict):
-                    # Normalize cell names before adding
+                    # Normalize and extract cells
                     cells = {normalize_cell(c) for c in server_info.get("cells", [])}
 
                     if server not in processed_hosts:
                         inventory_data[server] = cells
                         processed_hosts.add(server)
 
-    return inventory_data
+        # Handle 'children' nested groups
+        if "children" in group_data:
+            for child_group, child_info in group_data["children"].items():
+                if isinstance(child_info, dict) and "hosts" in child_info:
+                    for server, server_info in child_info["hosts"].items():
+                        if isinstance(server_info, dict):
+                            # Normalize and extract cells
+                            cells = {normalize_cell(c) for c in server_info.get("cells", [])}
 
+                            if server not in processed_hosts:
+                                inventory_data[server] = cells
+                                processed_hosts.add(server)
+
+    return inventory_data
+####################
 
 def compare_cells(efsservers_data, inventory_data):
     """Compare expected and actual cells and print discrepancies to console."""
+
     missing_servers = list(set(efsservers_data.keys()) - set(inventory_data.keys()))
     extra_servers = list(set(inventory_data.keys()) - set(efsservers_data.keys()))
 
@@ -40,7 +56,7 @@ def compare_cells(efsservers_data, inventory_data):
             print(f" {server}")
 
     for server, expected_cells in efsservers_data.items():
-        group = determine_group_from_pattern(server)  # Extract group name
+        group = determine_group_from_pattern(server)  # Ensure this function is correct
         if not group:
             print(f"Server {server} does not match any known group.")
             continue
@@ -48,13 +64,6 @@ def compare_cells(efsservers_data, inventory_data):
         # Normalize expected and actual cells before comparison
         actual_cells = {normalize_cell(c) for c in inventory_data.get(server, set())}
         expected_cells = {normalize_cell(c) for c in expected_cells}
-
-        # 🔥 Fix for empty AX inventory 🔥
-        if not actual_cells:
-            print(f"\n{server} in group {group}:")
-            print(f" Efs Database: {expected_cells}")
-            print(" Ax inventory: ⚠ **Server NOT FOUND in inventory!** ⚠")
-            continue  # Skip further checks for this server
 
         print(f"\n{server} in group {group}:")
         print(f" Efs Database: {expected_cells}")
@@ -69,31 +78,16 @@ def compare_cells(efsservers_data, inventory_data):
             if extra_cells:
                 print(f" Cells in the Ax inventory but not in the Efs Database: {extra_cells}")
 
-    # Servers group validation
-    if mismatches_servergroup:
-        print("\nServers group validation:")
-        print("==============================================")
-        print("\n".join(mismatches_servergroup))
-    else:
-        print("==============================================")
-        print("All servers are in the correct groups.\n")
+---
+### **Final Fix: Validate Everything**
+Modify your `validate_inventory_with_efs()` function **to ensure the correct function is called**:
 
-    # Control group validation
-    if mismatches:
-        print("\nControl Group Validation:")
-        print("==============================================")
-        print("\n".join(mismatches))
-    else:
-        print("==============================================")
-        print("Controlgroup A and B are correctly balanced for high availability.\n")
-
-
+```python
 def validate_inventory_with_efs(inventory_file, efs_file):
     """Wrapper function to parse files and compare inventory with EFS."""
-    efsservers_data = parse_efsservers(efs_file)  # Fixed function name
+    efsservers_data = parse_efs_servers(efs_file)  # ✅ Correct function name
     inventory_data = parse_inventory(inventory_file)
     compare_cells(efsservers_data, inventory_data)
-
 
 # Call the function
 validate_inventory_with_efs(inventory_file, efs_file)
