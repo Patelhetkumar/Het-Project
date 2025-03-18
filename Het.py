@@ -73,3 +73,20 @@ def compare_cells(efs_data, ax_inventory):
             })
 
     return mismatches
+
+
+###################################
+
+def validate_inventory_with_efs(inventory_file, efs_file):
+    """Wrapper function to parse files and compare inventory with EFS."""
+    efs_data = parse_efs_database(efs_file)
+    ax_inventory = parse_inventory(inventory_file)
+
+    mismatches = compare_cells(efs_data, ax_inventory)
+
+    if mismatches:
+        mismatches_df = pd.DataFrame(mismatches)
+        tools.display_dataframe_to_user(name="EFS vs AX Inventory Mismatches", dataframe=mismatches_df)
+    else:
+        print("✅ No mismatches found. The EFS database and AX inventory are aligned.")
+
