@@ -1,215 +1,89 @@
-import yaml
-import re
-import os
-import subprocess
+def parse_efs_database(file_path):
+    """Parse EFS database and extract server-cell mappings, ensuring normalization."""
+    efs_data = {}
 
-# Define the pattern-to-group mapping
-PATTERN_TO_GROUP = {
-    r"laauau2efs.*": "l_aja_ausy01sr1",
-    r"laauau1cefs.*": "l_aja_ausy02sr1",
-    r"lcnkh01efs.*": "l_aja_cnhk01",
-    r"lcnkh02efs.*": "l_aja_cnhk02",
-    r"linch07efs.*": "l_aja_inch07sr1",
-    r"linin08efs.*": "l_aja_inmu08sr1",
-    r"linin09efs.*": "l_aja_inmu09sr1",
-    r"ljpna01efs.*": "l_aja_jpna01",
-    r"ljpna02efs.*": "l_aja_jpna02",
-    r"ljpna03efs.*": "l_aja_jpna03",
-    r"lkrkr08efs.*": "l_aja_krse08sr2",
-    r"lsgsg06efs.*": "l_aja_sgsg06",
-    r"ltwpt04efs.*": "l_aja_twpt04",
-    r"luktw09efs.*": "l_aja_twty09sr1",
-    r"lukcm06efs.*": "l_emea_ukcm06",
-    r"lrusil06efs.*": "l_amrs_usil06",
-    r"luspa01efs.*": "l_amrs_uspa01",
-    r"lusxa01efs.*": "l_amrs_usxa01",
-    r"lusva01efs.*": "l_amrs_usva01"
-}
-
-# Define script directory
-script_dir = os.path.dirname(os.path.abspath(__file__))
-efs_file = os.path.join(script_dir, 'efsservers.txt')
-
-# Generate efsservers.txt dynamically in the script folder
-cmd = f"efs display efsserver | sed -e '1,/^==*/d' | awk '{{print $2 \",\" $1 \",\" $3}}' > {efs_file}"
-subprocess.run(cmd, shell=True, check=True)
-
-# Load inventory YAML
-inventory_file = os.path.join(script_dir, '..', 'prod', 'inventory.prod.yaml')
-with open(inventory_file, 'r') as file:
-    inventory = yaml.safe_load(file)
-
-# Extract control and server group hosts
-controlgroup_a1 = inventory['all']['children']['controlgroup_a']['hosts']
-controlgroup_b1 = inventory['all']['children']['controlgroup_b']['hosts']
-
-servertype_dev = set(inventory['all']['children']['servertype_dev']['hosts'])
-servertype_prod = set(inventory['all']['children']['servertype_prod']['hosts'])
-
-# Load unique EFS servers
-def load_efs_unique_servers(efs_file):
-    servers = {}
-    with open(efs_file, 'r') as file:
+    with open(file_path, "r") as file:
         for line in file:
-            parts = line.strip().split(',')
-            if len(parts) < 3:
+            parts = [p.strip() for p in line.strip().split(",")]  # Strip spaces
+            if len(parts) < 2:
                 continue  # Skip malformed lines
-            server_name, cell_name, host_type = parts
-            servers[server_name] = (cell_name, host_type)  # Ensure uniqueness
-    return servers
 
-# Load EFS servers from the text file
-def load_efs_servers(efs_file):
-    with open(efs_file, 'r') as file:
-        return [line.strip().split(',') for line in file.readlines()]
+            server, cell = parts[0], normalize_cell(parts[1])  # Normalize cell name
 
-# Load EFS servers
-efs_servers1 = load_efs_unique_servers(efs_file)
-efs_servers = load_efs_servers(efs_file)
+            if server not in efs_data:
+                efs_data[server] = set()
+            efs_data[server].add(cell)
 
-# Validate server placement
-mismatches_servergroup = set()
-for server_nm in efs_servers:
-    if len(server_nm) < 3:
-        continue  # Skip malformed lines
+    return efs_data
 
-    server_name, _, host_type = server_nm
+#######
 
-    if server_name in servertype_dev and host_type == 'prod':
-        mismatches_servergroup.add(f"Mismatch: {server_name} (prod) should be in servertype_dev")
-    elif server_name in servertype_prod and host_type == 'dev':
-        mismatches_servergroup.add(f"Mismatch: {server_name} (dev) should be in servertype_prod")
+def parse_inventory(file_path):
+    """Parse inventory-prod.yaml to extract actual cells for servers, avoiding duplicates."""
+    with open(file_path, "r") as file:
+        inventory = yaml.safe_load(file)
 
-# Dictionary to track server names under control groups
-group_counts = {
-    'controlgroup_a': {'dev': [], 'prod': []},
-    'controlgroup_b': {'dev': [], 'prod': []}
-}
+    inventory_data = {}
+    processed_hosts = set()
 
-data_center_pairs = {}
+    def extract_hosts(group_data):
+        """Recursively extract hosts from inventory groups."""
+        if "hosts" in group_data:
+            for server, server_info in group_data["hosts"].items():
+                if isinstance(server_info, dict):
+                    cells = {normalize_cell(c) for c in server_info.get("cells", [])}
 
-# Validate control groups and track servers
-assigned_servers = set()
-for server_name1, (cell_name, host_type) in efs_servers1.items():
-    if server_name1 in controlgroup_a1:
-        control_group = 'controlgroup_a'
-    elif server_name1 in controlgroup_b1:
-        control_group = 'controlgroup_b'
-    else:
-        continue  # Skip if not part of control groups
+                    # Avoid duplicate host processing
+                    if server not in processed_hosts:
+                        inventory_data[server] = cells
+                        processed_hosts.add(server)
 
-    group_counts[control_group][host_type].append((server_name1, cell_name))
-    assigned_servers.add(server_name1)
+        if "children" in group_data:
+            for subgroup in group_data["children"].values():
+                extract_hosts(subgroup)  # Recursively scan nested groups
 
-    if cell_name not in data_center_pairs:
-        data_center_pairs[cell_name] = {'controlgroup_a': {'dev': [], 'prod': []}, 
-                                        'controlgroup_b': {'dev': [], 'prod': []}}
-    data_center_pairs[cell_name][control_group][host_type].append(server_name1)
+    extract_hosts(inventory.get("all", {}).get("children", {}))
 
-# Validate pairing per data center
-mismatches = []
-for cell_name, groups in data_center_pairs.items():
-    controlgroup_a_dev = groups['controlgroup_a']['dev']
-    controlgroup_a_prod = groups['controlgroup_a']['prod']
-    controlgroup_b_dev = groups['controlgroup_b']['dev']
-    controlgroup_b_prod = groups['controlgroup_b']['prod']
+    return inventory_data
 
-    if len(controlgroup_a_dev) != len(controlgroup_a_prod) or len(controlgroup_b_dev) != len(controlgroup_b_prod):
-        mismatches.append(f"\nMismatch in data center {cell_name}:")
-        mismatches.append(f"  Controlgroup A: {controlgroup_a_dev} (dev) {controlgroup_a_prod} (prod)")
-        mismatches.append(f"  Controlgroup B: {controlgroup_b_dev} (dev) {controlgroup_b_prod} (prod)")
+########
 
-# Function to compare expected and actual cells
-def compare_cells(efsservers_data, inventory_data):
-    missing_servers = list(set(efsservers_data.keys()) - set(inventory_data.keys()))
-    extra_servers = list(set(inventory_data.keys()) - set(efsservers_data.keys()))
+def compare_cells(efs_data, ax_inventory):
+    """Compare EFS and AX inventory and detect mismatches."""
+    mismatches = []
+    missing_servers = list(set(efs_data.keys()) - set(ax_inventory.keys()))  # Servers in EFS but not in AX
 
+    for server, expected_cells in efs_data.items():
+        actual_cells = ax_inventory.get(server, set())
+
+        # Normalize both sets before comparison
+        expected_cells = {normalize_cell(c) for c in expected_cells}
+        actual_cells = {normalize_cell(c) for c in actual_cells}
+
+        missing_cells = expected_cells - actual_cells
+        extra_cells = actual_cells - expected_cells
+
+        if missing_cells or extra_cells:
+            mismatches.append({
+                "Server": server,
+                "Missing Cells": ", ".join(missing_cells) if missing_cells else "None",
+                "Extra Cells": ", ".join(extra_cells) if extra_cells else "None"
+            })
+
+    # Print servers in EFS but missing in the inventory
     if missing_servers:
-        print("\nMissing servers in inventory:")
-        print("===============================================")
+        print("\n🔴 Servers in EFS Database but **MISSING** in AX Inventory:")
         for server in missing_servers:
-            print(f"  - {server}")
+            print(f"   - {server}")
 
-    if extra_servers:
-        print("\nServers found in ax_inventories but not in EFS Database or efsserver.txt:")
-        print("===============================================")
-        for server in extra_servers:
-            print(f"  - {server}")
+    return mismatches
 
-    for server, expected_cells in efsservers_data.items():
-        group = determine_group_from_pattern(server)
+########
 
-        if not group:
-            print(f"Warning: {server} does not match any known group.")
-            continue
+def normalize_server(server_name):
+    """Normalize server names to avoid case mismatches."""
+    return server_name.strip().lower()
 
-        actual_cells = inventory_data.get(server, set())
-
-        if not actual_cells:
-            print(f"\nMismatch for server: {server} in group {group}:")
-            print("===============================================")
-            print(f"  - EFS Database: {expected_cells}")
-            print(f"  - Ax inventory: (New Server)")
-            continue
-
-        if expected_cells != actual_cells:
-            missing_cells = expected_cells - actual_cells
-            extra_cells = actual_cells - expected_cells
-
-            print(f"\nMismatch for server: {server} in group {group}:")
-            print("===============================================")
-            print(f"  - EFS Database: {expected_cells}")
-            print(f"  - Ax inventory: {actual_cells}")
-
-            if missing_cells:
-                print(f"  - Cells in the EFS Database but not in Ax inventory: {missing_cells}")
-
-            if extra_cells:
-                print(f"  - Cells in the Ax inventory but not in the EFS Database: {extra_cells}")
-
-# Call the function
-validate_inventory_with_efs(inventory_file, efs_file)
-
-
-
-######################################
-import unicodedata
-
-# Normalize function to clean cell names
-def clean_cell_name(cell):
-    return unicodedata.normalize("NFKC", cell).strip().lower().replace('\u200b', '').replace('\xa0', '')
-
-# Normalize all cells
-expected_cells_cleaned = sorted({clean_cell_name(cell) for cell in expected_cells})
-actual_cells_cleaned = sorted({clean_cell_name(cell) for cell in actual_cells})
-
-# Debugging Output to check if they match exactly
-print("\n🔎 DEBUG: Checking normalized sets")
-print(f"Sorted EFS Database Cells: {expected_cells_cleaned}")
-print(f"Sorted Ax Inventory Cells: {actual_cells_cleaned}")
-
-# **Final Explicit Check Before Reporting Mismatch**
-if expected_cells_cleaned == actual_cells_cleaned:
-    print(f"✅ No mismatch found for {server} in group {group} - Data is IDENTICAL after normalization.")
-else:
-    # Compute missing and extra cells
-    missing_cells = set(expected_cells_cleaned) - set(actual_cells_cleaned)
-    extra_cells = set(actual_cells_cleaned) - set(expected_cells_cleaned)
-
-    print(f"\n🔍 Mismatch for server: {server} in group {group}:")
-    print("===============================================")
-    print(f"  ✅ EFS Database: {expected_cells_cleaned}")
-    print(f"  📂 Ax Inventory: {actual_cells_cleaned}")
-
-    if missing_cells:
-        print(f"  ❌ Cells in the EFS Database but not in Ax inventory: {sorted(missing_cells)}")
-
-    if extra_cells:
-        print(f"  ⚠ Cells in the Ax inventory but not in the EFS Database: {sorted(extra_cells)}")
-
-
-    if set(actual_cells_cleaned) - set(expected_cells_cleaned):
-        print(f"  ⚠ Cells in the Ax inventory but not in the EFS Database: {sorted(set(actual_cells_cleaned) - set(expected_cells_cleaned))}")
-else:
-    print(f"✅ No mismatch found for {server} in group {group} - Data is IDENTICAL after normalization.")
-
+# Apply it in parse functions
+server = normalize_server(parts[0])  # In parse_efs_database()
+server = normalize_server(server)  # In parse_inventory()
