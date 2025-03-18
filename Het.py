@@ -1,6 +1,3 @@
-import yaml
-import re
-
 def parse_inventory(file_path):
     """Parse inventory YAML, handle hierarchical groups, normalize cell names, and remove duplicates."""
     with open(file_path, "r") as file:
@@ -51,8 +48,11 @@ def parse_inventory(file_path):
     for group in all_groups:
         inventory_data.update(extract_hosts(group))
 
+    print("\n✅ Debug: Inventory Loaded Successfully!")
+    print(f"Total servers found: {len(inventory_data)}")
+    
     return inventory_data
-#############################################################################
+###############################################################
 
 def compare_cells(efsservers_data, inventory_data):
     """Compare expected and actual cells, ensuring normalization and avoiding duplicate mismatches."""
@@ -61,16 +61,19 @@ def compare_cells(efsservers_data, inventory_data):
         """Standardizes cell names to remove spaces and ensure consistent formatting."""
         return cell.lower().replace(" ", "").strip()
 
+    print("\n✅ Debug: Starting Comparison Between EFS and AX Inventory")
+    print(f"Total EFS servers: {len(efsservers_data)} | Total Inventory servers: {len(inventory_data)}")
+
     missing_servers = list(set(efsservers_data.keys()) - set(inventory_data.keys()))
     extra_servers = list(set(inventory_data.keys()) - set(efsservers_data.keys()))
 
     if missing_servers:
-        print("\nMissing servers in inventory:")
+        print("\n🚨 Missing servers in inventory:")
         for server in missing_servers:
             print(f" {server}")
 
     if extra_servers:
-        print("\nServers found in ax_inventories but not in EFS Database:")
+        print("\n⚠️ Extra servers found in AX inventory but not in EFS Database:")
         for server in extra_servers:
             print(f" {server}")
 
@@ -83,18 +86,20 @@ def compare_cells(efsservers_data, inventory_data):
         actual_cells_normalized = {normalize_cell(cell) for cell in actual_cells}
 
         if not actual_cells_normalized:
-            print(f"\nMismatch for server {server} in group {group}:")
+            print(f"\n❌ Mismatch for server {server} in group {group}:")
             print(f" EFS Database: {expected_cells_normalized}")
             print(f" Ax inventory: (New Server)")
         elif expected_cells_normalized != actual_cells_normalized:
             missing_cells = expected_cells_normalized - actual_cells_normalized
             extra_cells = actual_cells_normalized - expected_cells_normalized
 
-            print(f"{server} in group {group}:")
+            print(f"\n🔍 {server} in group {group}:")
             print(f" EFS Database: {expected_cells_normalized}")
             print(f" Ax inventory: {actual_cells_normalized}")
 
             if missing_cells:
-                print(f" Cells in the Efs Database but not in the Ax inventory: {missing_cells}")
+                print(f" 🚨 Cells in the EFS Database but not in the Ax inventory: {missing_cells}")
             if extra_cells:
-                print(f" Cells in the Ax inventory but not in the Efs Database: {extra_cells}")
+                print(f" ⚠️ Cells in the Ax inventory but not in the EFS Database: {extra_cells}")
+
+    print("\n✅ Debug: Comparison Completed!")
