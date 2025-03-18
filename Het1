@@ -1,6 +1,11 @@
-def parse_efs_database(file_path):
-    """Parse EFS database and extract server-cell mappings, ensuring normalization."""
-    efs_data = {}
+import yaml
+import re
+
+# ----------------- Parse EFS Database -----------------
+
+def parse_efs_servers(file_path):
+    """Extract server names and expected cells from efsservers.txt."""
+    server_data = {}
 
     with open(file_path, "r") as file:
         for line in file:
@@ -8,18 +13,18 @@ def parse_efs_database(file_path):
             if len(parts) < 2:
                 continue  # Skip malformed lines
 
-            server, cell = parts[0], normalize_cell(parts[1])  # Normalize cell name
+            server, cell = normalize_server(parts[0]), normalize_cell(parts[1])  # Normalize names
 
-            if server not in efs_data:
-                efs_data[server] = set()
-            efs_data[server].add(cell)
+            if server not in server_data:
+                server_data[server] = set()
+            server_data[server].add(cell)
 
-    return efs_data
+    return server_data
 
-#######
+# ----------------- Parse AX Inventory (YAML) -----------------
 
 def parse_inventory(file_path):
-    """Parse inventory-prod.yaml to extract actual cells for servers, avoiding duplicates."""
+    """Extract actual cells for servers from inventory-prod.yaml, handling nested groups."""
     with open(file_path, "r") as file:
         inventory = yaml.safe_load(file)
 
@@ -33,9 +38,8 @@ def parse_inventory(file_path):
                 if isinstance(server_info, dict):
                     cells = {normalize_cell(c) for c in server_info.get("cells", [])}
 
-                    # Avoid duplicate host processing
                     if server not in processed_hosts:
-                        inventory_data[server] = cells
+                        inventory_data[normalize_server(server)] = cells
                         processed_hosts.add(server)
 
         if "children" in group_data:
@@ -46,15 +50,42 @@ def parse_inventory(file_path):
 
     return inventory_data
 
-########
+# ----------------- Normalization Functions -----------------
 
-def compare_cells(efs_data, ax_inventory):
-    """Compare EFS and AX inventory and detect mismatches."""
+def normalize_cell(cell_name):
+    """Normalize cell names to remove inconsistencies (spaces, domain variations)."""
+    cell_name = cell_name.strip()  # Remove leading/trailing spaces
+    cell_name = re.sub(r'\s+', '', cell_name)  # Remove any internal spaces
+    cell_name = cell_name.replace(".m1.com", ".ml.com")  # Standardize domain variations
+    return cell_name.lower()  # Convert to lowercase
+
+def normalize_server(server_name):
+    """Normalize server names to avoid case mismatches."""
+    return server_name.strip().lower()
+
+# ----------------- Compare EFS & AX Inventory -----------------
+
+def compare_cells(efsservers_data, inventory_data):
+    """Compare expected and actual cells, printing discrepancies to console."""
     mismatches = []
-    missing_servers = list(set(efs_data.keys()) - set(ax_inventory.keys()))  # Servers in EFS but not in AX
+    
+    # Find missing and extra servers
+    missing_servers = list(set(efsservers_data.keys()) - set(inventory_data.keys()))
+    extra_servers = list(set(inventory_data.keys()) - set(efsservers_data.keys()))
 
-    for server, expected_cells in efs_data.items():
-        actual_cells = ax_inventory.get(server, set())
+    if missing_servers:
+        print("\n🔴 Missing servers in inventory:")
+        for server in missing_servers:
+            print(f"   - {server}")
+
+    if extra_servers:
+        print("\n⚠️ Servers found in ax_inventories but not in EFS Database:")
+        for server in extra_servers:
+            print(f"   - {server}")
+
+    # Compare individual servers
+    for server, expected_cells in efsservers_data.items():
+        actual_cells = inventory_data.get(server, set())
 
         # Normalize both sets before comparison
         expected_cells = {normalize_cell(c) for c in expected_cells}
@@ -70,20 +101,33 @@ def compare_cells(efs_data, ax_inventory):
                 "Extra Cells": ", ".join(extra_cells) if extra_cells else "None"
             })
 
-    # Print servers in EFS but missing in the inventory
-    if missing_servers:
-        print("\n🔴 Servers in EFS Database but **MISSING** in AX Inventory:")
-        for server in missing_servers:
-            print(f"   - {server}")
+            print(f"\n🔹 {server} Discrepancy in Cells:")
+            print(f"   - EFS Database: {expected_cells}")
+            print(f"   - AX Inventory: {actual_cells}")
+            if missing_cells:
+                print(f"   - ❌ Missing in AX: {missing_cells}")
+            if extra_cells:
+                print(f"   - ❗ Extra in AX: {extra_cells}")
 
     return mismatches
 
-########
+# ----------------- Main Function -----------------
 
-def normalize_server(server_name):
-    """Normalize server names to avoid case mismatches."""
-    return server_name.strip().lower()
+def validate_inventory_with_efs(inventory_file, efs_file):
+    """Wrapper function to parse files and compare inventory with EFS."""
+    efsservers_data = parse_efs_servers(efs_file)
+    inventory_data = parse_inventory(inventory_file)
 
-# Apply it in parse functions
-server = normalize_server(parts[0])  # In parse_efs_database()
-server = normalize_server(server)  # In parse_inventory()
+    mismatches = compare_cells(efsservers_data, inventory_data)
+
+    if not mismatches:
+        print("✅ No mismatches found. The EFS database and AX inventory are aligned.")
+
+# ----------------- Run the Validation -----------------
+
+# Define paths to your files
+inventory_file_path = "path/to/inventory.prod.yaml"  # Replace with actual path
+efs_file_path = "path/to/efs_database.txt"  # Replace with actual path
+
+# Run the validation process
+validate_inventory_with_efs(inventory_file_path, efs_file_path)
