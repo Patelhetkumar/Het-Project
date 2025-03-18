@@ -1,202 +1,90 @@
 import yaml
 import re
-import os
-import subprocess
-import rich
 
-# Define the pattern-to-group mapping 
-PATTERN_TO_GROUP = {
-    r"lauau2pefs.*": "l_aja_ausy01sr1",
-    r"lauau1cefs.*": "l_aja_ausy02sr1",
-    r"lcnhk01efs.*": "l_aja_cnhk01",
-    r"lcnhk02efs.*": "l_aja_cnhk02",
-    r"linch07efs.*": "l_aja_inch07sr1",
-    r"linin0cefs.*": "l_aja_inmu02sr1",
-    r"linin8pefs.*": "l_aja_inmu01sr1",
-    r"linmu08efs.*": "l_aja_inmu08sr1",
-    r"ljpsa01efs.*": "l_aja_jpsa01",
-    r"ljpnz01efs.*": "l_aja_jpnz01",
-    r"ljptk01efs.*": "l_aja_jptk01",
-    r"lkrkr0pefs.*": "l_aja_kray01sr1",
-    r"lkrkr0cefs.*": "l_aja_krse01sr2",
-    r"lsgsg01efs.*": "l_aja_sgsg01",
-    r"lsgsg02efs.*": "l_aja_sgsg02",
-    r"ltwtp04efs.*": "l_aja_twtp04",
-    r"ltwtw0pefs.*": "l_aja_twty01sr1",
-    r"lukcm01efs.*": "l_emea_ukcm01",
-    r"lukwg01efs.*": "l_emea_ukwg01",
-    r"lusaz01efs.*": "l_amrs_usaz01",
-    r"lusaz07efs.*": "l_amrs_usaz07",
-    r"lusil05efs.*": "l_amrs_usil05",
-    r"luspa01efs.*": "l_amrs_uspa01",
-    r"lustx02efs.*": "l_amrs_ustx02",
-    r"lusva01efs.*": "l_amrs_usva01",
-}
+def parse_inventory(file_path):
+    """Parse inventory YAML to extract actual cells for servers, handling child groups correctly."""
+    with open(file_path, "r") as file:
+        inventory = yaml.safe_load(file)
 
-# Define script directory
-script_dir = os.path.dirname(os.path.abspath(__file__))
-efs_file = os.path.join(script_dir, 'efsservers.txt')
+    inventory_data = {}
+    all_groups = inventory.get('all', {}).get('children', {})
 
+    def extract_hosts(group_name, seen_groups=None):
+        """ Recursively extract hosts and their cells, avoiding duplicate processing. """
+        if seen_groups is None:
+            seen_groups = set()
 
-# Generate efsservers.txt dynamically in the script folder
-cmd = f"efs display efsservers | sed -e '1,/^==*/d' | awk '{{print $2 \",\" $1 \",\" $3}}' > {efs_file}"
-subprocess.run(cmd, shell=True, check=True)
+        if group_name in seen_groups:
+            return {}  # Prevent infinite loops
 
-# Load inventory yaml
-inventory_file = os.path.join(script_dir, 'inventory.prod.yaml')
-with open(inventory_file, 'r') as file:
-    inventory1 = yaml.safe_load(file)
+        seen_groups.add(group_name)
+        group_data = all_groups.get(group_name, {})
 
-# Extract control group hosts
-controlgroup_a1 = inventory1['all']['children']['controlgroup_a']['hosts']
-controlgroup_b1 = inventory1['all']['children']['controlgroup_b']['hosts']
+        hosts = {}
+        if "hosts" in group_data and isinstance(group_data["hosts"], dict):
+            for server, server_info in group_data["hosts"].items():
+                if isinstance(server_info, dict) and "cells" in server_info:
+                    # Normalize cell formatting (remove spaces, lowercase, etc.)
+                    normalized_cells = {cell.strip().lower() for cell in server_info["cells"]}
+                    if server in hosts:
+                        hosts[server].update(normalized_cells)
+                    else:
+                        hosts[server] = normalized_cells
 
-# Extract server group hosts
-servertype_dev = set(inventory1['all']['children']['servertype_dev']['hosts'])
-servertype_prod = set(inventory1['all']['children']['servertype_prod']['hosts'])
+        # Recursively process child groups
+        if "children" in group_data and isinstance(group_data["children"], dict):
+            for child_group in group_data["children"]:
+                child_hosts = extract_hosts(child_group, seen_groups)
+                for server, cells in child_hosts.items():
+                    if server in hosts:
+                        hosts[server].update(cells)
+                    else:
+                        hosts[server] = cells
 
-def load_efs_unique_servers(efs_file):
-    """ Load unique EFS servers from the text file """
-    servers = {}
-    with open(efs_file, 'r') as file:
-        for line in file:
-            parts = line.strip().split(',')
-            if len(parts) < 3:
-                continue  # Skip malformed lines
-            server_name, cell_name, host_type = parts
-            servers[server_name] = (cell_name, host_type)  # Ensure uniqueness
-    return servers
+        return hosts
 
-def load_efs_servers(efs_file):
-    """ Load EFS servers from the text file """
-    with open(efs_file, 'r') as file:
-        return [line.strip().split(',') for line in file.readlines()]
+    # Process each group in the inventory
+    for group in all_groups:
+        inventory_data.update(extract_hosts(group))
 
-# Load EFS servers
-efs_servers1 = load_efs_unique_servers(efs_file)
-efs_servers = load_efs_servers(efs_file)
-
-
-# Set to store unique mismatches
-mismatches_servergroup = set()
-
-# Validate server placement
-for server_nm in efs_servers:
-    if len(server_nm) < 3:
-        continue  # Skip malformed lines
-    
-    server_name_1, _, host_type = server_nm
-    if server_name_1 in servertype_dev and host_type != 'dev':
-        mismatches_servergroup.add(f"Mismatch: {server_name_1} {host_type} in servertype_dev but it should be in servertype_prod")
-    elif server_name_1 in servertype_prod and host_type != 'prod':
-        mismatches_servergroup.add(f"Mismatch: {server_name_1} {host_type} in servertype_prod but it should be in servertype_dev")
-
-# Dictionaries to store server names under each group and type
-group_counts = {
-    'controlgroup_a': {'dev': [], 'prod': []},
-    'controlgroup_b': {'dev': [], 'prod': []}
-}
-
-# Dictionary to track pairs by data center
-data_center_pairs = {}
-
-# Track assigned servers
-assigned_servers = set()
-
-# Check placement of each unique server
-for server_name1, (cell_name, host_type) in efs_servers1.items():
-    # Identify control group
-    if server_name1 in controlgroup_a1:
-        control_group = 'controlgroup_a'
-    elif server_name1 in controlgroup_b1:
-        control_group = 'controlgroup_b'
-    else:
-        continue  # Skip if the server is not part of any control group
-
-    # Track in the respective control group
-    group_counts[control_group][host_type].append((server_name1, cell_name))
-    assigned_servers.add(server_name1)
-
-    # Track pairs by data center (cell_name)
-    if cell_name not in data_center_pairs:
-        data_center_pairs[cell_name] = {'controlgroup_a': {'dev': [], 'prod': []}, 
-                                        'controlgroup_b': {'dev': [], 'prod': []}}
-
-    data_center_pairs[cell_name][control_group][host_type].append(server_name1)
-
-# Identify mismatches
-mismatches = []
-
-# Validate pairing per data center
-for cell_name, groups in data_center_pairs.items():
-    controlgroup_a_dev = groups['controlgroup_a']['dev']
-    controlgroup_a_prod = groups['controlgroup_a']['prod']
-    controlgroup_b_dev = groups['controlgroup_b']['dev']
-    controlgroup_b_prod = groups['controlgroup_b']['prod']
-
-    if len(controlgroup_a_dev) != len(controlgroup_a_prod) or len(controlgroup_b_dev) != len(controlgroup_b_prod):
-        mismatches.append(f"\nMismatch in data center {cell_name}:")
-        mismatches.append(f"controlgroup_a: {' '.join([f'{s} (dev)' for s in controlgroup_a_dev])} {' '.join([f'{s} (prod)' for s in controlgroup_a_prod])}")
-        mismatches.append(f"controlgroup_b: {' '.join([f'{s} (dev)' for s in controlgroup_b_dev])} {' '.join([f'{s} (prod)' for s in controlgroup_b_prod])}")
-
-# Validate total count of assigned servers (considering unique server names)
-total_efs_count = len(efs_servers1)  # Unique servers
-total_assigned_count = len(assigned_servers)
-
-if total_assigned_count != total_efs_count:
-    mismatches.append(f"Total server count mismatch: expected {total_efs_count}, but assigned {total_assigned_count}")
-    
-    unassigned_servers = [server for server in efs_servers1.keys() if server not in assigned_servers]
-    mismatches.append(f"Unassigned servers: {' '.join(unassigned_servers)}")
-
-# Function to determine the group for a new server based on its name using the pattern-to-group mapping
-def determine_group_from_pattern(server_name):
-    for pattern, group in PATTERN_TO_GROUP.items():
-        if re.match(pattern, server_name):
-            return group
-    return "Unknown Group"  # Default if no match found
-
+    return inventory_data
+######################################################################################
 def compare_cells(efsservers_data, inventory_data):
-    """Compare expected and actual cells and print discrepancies to console."""
-    
+    """Compare expected and actual cells, ensuring proper normalization and avoiding duplicates."""
     missing_servers = list(set(efsservers_data.keys()) - set(inventory_data.keys()))
     extra_servers = list(set(inventory_data.keys()) - set(efsservers_data.keys()))
-    
+
     if missing_servers:
-        print("Missing servers in inventory:")
-        print("========================================================")
+        print("\nMissing servers in inventory:")
         for server in missing_servers:
-            print(f"  {server}")
+            print(f" {server}")
 
     if extra_servers:
-        print("\nExtra servers in inventory:")
-        print("========================================================")
+        print("\nServers found in ax_inventories but not in EFS Database:")
         for server in extra_servers:
-            print(f"  {server}")
+            print(f" {server}")
 
-    # Iterate through servers and compare expected vs actual cells
     for server, expected_cells in efsservers_data.items():
         group = determine_group_from_pattern(server)
-        if not group:
-            print(f"Server {server} does not match any known group.")
-            continue
-        
         actual_cells = inventory_data.get(server, set())
-        missing_cells = expected_cells - actual_cells
-        extra_cells = actual_cells - expected_cells
-        
-        if not actual_cells:  # If actual is empty, mark it as a new server
-            print("\nMismatch for server:")
-            print("========================================================")
+
+        # Normalize cell names for accurate comparison
+        expected_cells_normalized = {cell.strip().lower() for cell in expected_cells}
+        actual_cells_normalized = {cell.strip().lower() for cell in actual_cells}
+
+        if not actual_cells_normalized:
+            print(f"\nMismatch for server {server} in group {group}:")
+            print(f" EFS Database: {expected_cells_normalized}")
+            print(f" Ax inventory: (New Server)")
+        elif expected_cells_normalized != actual_cells_normalized:
+            missing_cells = expected_cells_normalized - actual_cells_normalized
+            extra_cells = actual_cells_normalized - expected_cells_normalized
+
             print(f"{server} in group {group}:")
-            print(f"  Efs Database: {expected_cells}")
-            print(f"  Ax inventory:   (New Server)")
-        elif expected_cells != actual_cells:
-            print(f"{server} in group {group}:")
-            print(f"  Efs Database: {expected_cells}")
-            print(f"  Ax inventory:   {actual_cells}")
+            print(f" EFS Database: {expected_cells_normalized}")
+            print(f" Ax inventory: {actual_cells_normalized}")
+
             if missing_cells:
-                print(f"  Missing Cells: {', '.join(missing_cells)}")
+                print(f" Cells in the Efs Database but not in the Ax inventory: {missing_cells}")
             if extra_cells:
-                print(f"  Extra Cells: {', '.join(extra_cells)}")
-            print("========================================================")
+                print(f" Cells in the Ax inventory but not in the Efs Database: {extra_cells}")
