@@ -1,69 +1,26 @@
-import yaml
-import re
-
-# ----------------- Parse EFS Database -----------------
-
-def parse_efs_servers(file_path):
-    """Extract server names and expected cells from efsservers.txt."""
-    server_data = {}
-
-    with open(file_path, "r") as file:
-        for line in file:
-            parts = [p.strip() for p in line.strip().split(",")]  # Strip spaces
-            if len(parts) < 2:
-                continue  # Skip malformed lines
-
-            server, cell = normalize_server(parts[0]), normalize_cell(parts[1])  # Normalize names
-
-            if server not in server_data:
-                server_data[server] = set()
-            server_data[server].add(cell)
-
-    return server_data
-
-# ----------------- Parse AX Inventory (YAML) -----------------
-
 def parse_inventory(file_path):
-    """Extract actual cells for servers from inventory-prod.yaml, handling nested groups."""
+    """Parse inventory-prod.yaml to extract actual cells for servers, avoiding duplicates."""
     with open(file_path, "r") as file:
         inventory = yaml.safe_load(file)
 
     inventory_data = {}
     processed_hosts = set()
 
-    def extract_hosts(group_data):
-        """Recursively extract hosts from inventory groups."""
-        if "hosts" in group_data:
+    all_groups = inventory.get('all', {}).get('children', {})
+
+    for group, group_data in all_groups.items():
+        if isinstance(group_data, dict) and "hosts" in group_data:
             for server, server_info in group_data["hosts"].items():
                 if isinstance(server_info, dict):
+                    # Normalize cell names before adding
                     cells = {normalize_cell(c) for c in server_info.get("cells", [])}
 
                     if server not in processed_hosts:
-                        inventory_data[normalize_server(server)] = cells
+                        inventory_data[server] = cells
                         processed_hosts.add(server)
-
-        if "children" in group_data:
-            for subgroup in group_data["children"].values():
-                extract_hosts(subgroup)  # Recursively scan nested groups
-
-    extract_hosts(inventory.get("all", {}).get("children", {}))
 
     return inventory_data
 
-# ----------------- Normalization Functions -----------------
-
-def normalize_cell(cell_name):
-    """Normalize cell names to remove inconsistencies (spaces, domain variations)."""
-    cell_name = cell_name.strip()  # Remove leading/trailing spaces
-    cell_name = re.sub(r'\s+', '', cell_name)  # Remove any internal spaces
-    cell_name = cell_name.replace(".m1.com", ".ml.com")  # Standardize domain variations
-    return cell_name.lower()  # Convert to lowercase
-
-def normalize_server(server_name):
-    """Normalize server names to avoid case mismatches."""
-    return server_name.strip().lower()
-
-# ----------------- Compare EFS & AX Inventory -----------------
 
 def compare_cells(efsservers_data, inventory_data):
     """Compare expected and actual cells and print discrepancies to console."""
@@ -92,7 +49,13 @@ def compare_cells(efsservers_data, inventory_data):
         actual_cells = {normalize_cell(c) for c in inventory_data.get(server, set())}
         expected_cells = {normalize_cell(c) for c in expected_cells}
 
-        # Formatting the output as per your required format
+        # 🔥 Fix for empty AX inventory 🔥
+        if not actual_cells:
+            print(f"\n{server} in group {group}:")
+            print(f" Efs Database: {expected_cells}")
+            print(" Ax inventory: ⚠ **Server NOT FOUND in inventory!** ⚠")
+            continue  # Skip further checks for this server
+
         print(f"\n{server} in group {group}:")
         print(f" Efs Database: {expected_cells}")
         print(f" Ax inventory: {actual_cells}")
@@ -127,7 +90,7 @@ def compare_cells(efsservers_data, inventory_data):
 
 def validate_inventory_with_efs(inventory_file, efs_file):
     """Wrapper function to parse files and compare inventory with EFS."""
-    efsservers_data = parse_efs_servers(efs_file)  # Fixed function name
+    efsservers_data = parse_efsservers(efs_file)  # Fixed function name
     inventory_data = parse_inventory(inventory_file)
     compare_cells(efsservers_data, inventory_data)
 
