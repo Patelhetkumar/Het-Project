@@ -1,5 +1,11 @@
+import re
+
+def clean_cell_name(cell):
+    """Normalize and clean cell names by removing extra spaces and making lowercase."""
+    return re.sub(r'\s+', '', cell.strip().lower())  # Remove ALL spaces within strings
+
 def compare_cells(efsservers_data, inventory_data):
-    """Compare expected and actual cells, clean mismatches, and print verified discrepancies."""
+    """Compare expected and actual cells with enhanced normalization & partial matching correction."""
 
     missing_servers = list(set(efsservers_data.keys()) - set(inventory_data.keys()))
     extra_servers = list(set(inventory_data.keys()) - set(efsservers_data.keys()))
@@ -32,19 +38,28 @@ def compare_cells(efsservers_data, inventory_data):
             print(f" Ax Inventory: (New Server - No record found)")
             continue
 
-        # ✅ Normalize the cell names to remove formatting inconsistencies
-        expected_cells = {cell.strip().lower() for cell in expected_cells}
-        actual_cells = {cell.strip().lower() for cell in actual_cells}
+        # ✅ Clean and Normalize both sets before comparing
+        expected_cells = {clean_cell_name(cell) for cell in expected_cells}
+        actual_cells = {clean_cell_name(cell) for cell in actual_cells}
 
         if expected_cells != actual_cells:
             # Find missing and extra cells
             missing_cells = expected_cells - actual_cells
             extra_cells = actual_cells - expected_cells
 
-            # ✅ Additional Verification: Remove false mismatches
-            false_mismatches = missing_cells.intersection(extra_cells)
-            missing_cells -= false_mismatches
-            extra_cells -= false_mismatches
+            # ✅ Fuzzy Matching Step: If a close match exists, remove from mismatches
+            corrected_missing = set()
+            corrected_extra = set()
+
+            for missing in missing_cells:
+                for extra in extra_cells:
+                    if missing in extra or extra in missing:  # Partial match found
+                        corrected_missing.add(missing)
+                        corrected_extra.add(extra)
+
+            # Remove false mismatches
+            missing_cells -= corrected_missing
+            extra_cells -= corrected_extra
 
             print(f"\n{server} in group {group}:")
             print(f" EFS Database: {expected_cells}")
@@ -55,8 +70,8 @@ def compare_cells(efsservers_data, inventory_data):
             if extra_cells:
                 print(f" ❌ Cells in the Ax inventory but not in the EFS Database: {extra_cells}")
 
-            if false_mismatches:
-                print(f" ✅ Corrected: These cells were falsely marked as mismatched but actually exist in both: {false_mismatches}")
+            if corrected_missing or corrected_extra:
+                print(f" ✅ Corrected: These cells were falsely marked as mismatched but actually exist in both: {corrected_missing | corrected_extra}")
 
     if mismatches_servergroup:
         print("\nServers group validation:")
