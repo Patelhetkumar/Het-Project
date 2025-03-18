@@ -28,6 +28,7 @@ def parse_efs_servers(file_path):
                 server_data[server] = set()
             server_data[server].add(cell)
 
+    print(f"DEBUG: Parsed EFS Servers -> {len(server_data)} servers found.")
     return server_data
 
 # ----------------- Parsing AX Inventory -----------------
@@ -55,47 +56,48 @@ def parse_inventory(file_path):
                         inventory_data[server] = cells
                         processed_hosts.add(server)
 
+    print(f"DEBUG: Parsed Inventory -> {len(inventory_data)} servers found.")
     return inventory_data
 
-# ----------------- Comparison Function -----------------
+# ----------------- Comparison Function (Full Validation) -----------------
 def compare_cells(efsservers_data, inventory_data):
     """Compare expected and actual cells and print discrepancies to console."""
-    missing_servers = list(set(efsservers_data.keys()) - set(inventory_data.keys()))
-    extra_servers = list(set(inventory_data.keys()) - set(efsservers_data.keys()))
+    missing_servers = set(efsservers_data.keys()) - set(inventory_data.keys())
+    extra_servers = set(inventory_data.keys()) - set(efsservers_data.keys())
 
-    if missing_servers:
-        print("\nMissing servers in inventory:")
-        print("=======================================")
-        for server in missing_servers:
-            print(f" {server}")
+    print("\n========= Server Comparison Summary =========")
+    print(f"Total Servers in EFS Database: {len(efsservers_data)}")
+    print(f"Total Servers in Inventory: {len(inventory_data)}")
+    print(f"Missing Servers in Inventory: {len(missing_servers)}")
+    print(f"Extra Servers in Inventory (Not in EFS): {len(extra_servers)}\n")
 
-    if extra_servers:
-        print("\nServers found in ax_inventories but not in EFS Database or efsserver.txt:")
-        print("=======================================")
-        for server in extra_servers:
-            print(f" {server}")
-
+    # ** Ensure every EFS server is checked against Inventory **
     for server, expected_cells in efsservers_data.items():
-        # Normalize expected and actual cells before comparison
         actual_cells = {normalize_cell(c) for c in inventory_data.get(server, set())}
         expected_cells = {normalize_cell(c) for c in expected_cells}
 
+        print(f"\n🔍 Checking Server: {server}")
+
         if not actual_cells:
-            print(f"\nMismatch for server: {server}:")
+            print(f"❌ ERROR: Server {server} not found in Inventory!")
             print(f" EFS Database: {expected_cells}")
-            print(f" Ax inventory: (New Server - Not Found in Inventory)")
-        elif expected_cells != actual_cells:
-            missing_cells = expected_cells - actual_cells
-            extra_cells = actual_cells - expected_cells
+            continue
 
-            print(f"\n{server}:")
-            print(f" EFS Database: {expected_cells}")
-            print(f" Ax inventory: {actual_cells}")
+        # Check for missing and extra cells
+        missing_cells = expected_cells - actual_cells
+        extra_cells = actual_cells - expected_cells
 
-            if missing_cells:
-                print(f" Cells in the EFS Database but not in the Ax inventory: {missing_cells}")
-            if extra_cells:
-                print(f" Cells in the Ax inventory but not in the EFS Database: {extra_cells}")
+        print(f"✅ EFS Database: {expected_cells}")
+        print(f"✅ AX Inventory: {actual_cells}")
+
+        if missing_cells:
+            print(f"❌ Cells in EFS Database but NOT in AX Inventory: {missing_cells}")
+        if extra_cells:
+            print(f"⚠️ Cells in AX Inventory but NOT in EFS Database: {extra_cells}")
+
+    # ** Ensure every Inventory server is checked against EFS Database **
+    for server in extra_servers:
+        print(f"\n⚠️ WARNING: Server {server} exists in Inventory but NOT in EFS Database!")
 
 # ----------------- Validation Function -----------------
 def validate_inventory_with_efs(inventory_file, efs_file):
