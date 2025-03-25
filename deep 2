@@ -1,0 +1,259 @@
+#!/usr/bin/env python3
+"""
+EFS Server Inventory Validation Tool
+
+This script validates EFS server inventory by comparing:
+1. Server placement in control groups (A/B) and server types (dev/prod)
+2. Cell assignments between EFS database and inventory
+3. High availability pairing validation
+"""
+
+import yaml
+import re
+import os
+import subprocess
+from typing import Dict, List, Set, Tuple, Any
+
+# Constants
+PATTERN_TO_GROUP = {
+    r"laau42efs.*": "l_aja_ausyb01sr1",
+    r"laauu1efs.*": "l_aja_ausy02sr1",
+    r"lchhk01efs.*": "l_aja_cnhhk01",
+    r"lchhk02efs.*": "l_aja_cnhhk02",
+    r"lchhk07efs.*": "l_aja_inhche07sr1",
+    r"linnh02efs.*": "l_aja_inmu02sr1",
+    r"linnh08efs.*": "l_aja_inmu08sr1",
+    r"ljnpa05efs.*": "l_aja_jnspa01",
+    r"ljnpa01efs.*": "l_aja_jnpe01",
+    r"ljptk01efs.*": "l_aja_jptk01",
+    r"lkrhk09efs.*": "l_aja_kray01sr1",
+    r"lkrhk02efs.*": "l_aja_krse01sr2",
+    r"lsgsg01efs.*": "l_aja_ssgsg01",
+    r"lsgsg02efs.*": "l_aja_ssgsg02",
+    r"ltwtp04efs.*": "l_aja_ttwtp04",
+    r"ltwtp01efs.*": "l_aja_ttwtp01sr1",
+    r"lemea01efs.*": "l_emea_ukcm01",
+    r"luksg01efs.*": "l_emea_ukvg01",
+    r"lusaz07efs.*": "l_amrs_usaz07",
+    r"lusaz06efs.*": "l_amrs_usaz06",
+    r"luspa01efs.*": "l_amrs_uspa01",
+    r"lustx02efs.*": "l_amrs_ustx02",
+    r"lusva01efs.*": "l_amrs_usva01",
+}
+
+class EFSInventoryValidator:
+    """Main class for EFS inventory validation operations."""
+    
+    def __init__(self, inventory_path: str):
+        """Initialize with inventory file path."""
+        self.inventory_path = inventory_path
+        self.inventory_data = None
+        self.efs_servers = None
+        self.mismatches: List[str] = []
+        self.mismatches_servergroup: Set[str] = set()
+        
+    def load_inventory(self) -> Dict[str, Any]:
+        """Load and parse the YAML inventory file."""
+        with open(self.inventory_path, 'r') as file:
+            return yaml.safe_load(file)
+    
+    def get_efs_server_output(self) -> List[List[str]]:
+        """
+        Execute command to get EFS server details.
+        Returns: List of server entries [server_name, cell_name, host_type]
+        """
+        cmd = ("efs display efsserver | sed -e '1,/^ ==* /d' | "
+               "awk '{{print $2 \", \" $1 \", \" $3}}'")
+        result = subprocess.run(cmd, shell=True, 
+                              capture_output=True, text=True, check=True)
+        
+        servers = []
+        for line in result.stdout.strip().split("\n"):
+            parts = [p.strip() for p in line.split(',')]
+            if len(parts) >= 3:
+                servers.append(parts)
+        return servers
+    
+    def load_efs_servers(self) -> Dict[str, Tuple[str, str]]:
+        """Load EFS servers into dictionary {server: (cell, host_type)}."""
+        servers = {}
+        for parts in self.get_efs_server_output():
+            if len(parts) >= 3:
+                server_name, cell_name, host_type = parts[:3]  # Ensure only first 3 elements
+                servers[server_name] = (cell_name, host_type)
+        return servers
+    
+    def normalize_cell(self, cell_name: str) -> str:
+        """Standardize cell name formatting."""
+        cell_name = cell_name.strip()
+        cell_name = re.sub(r'\s+', '', cell_name)
+        cell_name = cell_name.replace(".m1.com", ".ml.com")
+        return cell_name
+    
+    def determine_group_from_pattern(self, server_name: str) -> str:
+        """Determine server group based on name patterns."""
+        for pattern, group in PATTERN_TO_GROUP.items():
+            if re.match(pattern, server_name):
+                return group
+        return "Unknown Group"
+    
+    def validate_server_placement(self):
+        """Validate server placement in control groups and server types."""
+        inventory = self.load_inventory()
+        controlgroup_a = inventory['all']['children']['controlgroup_a']['hosts']
+        controlgroup_b = inventory['all']['children']['controlgroup_b']['hosts']
+        servertype_dev = set(inventory['all']['children']['servertype_dev']['hosts'])
+        servertype_prod = set(inventory['all']['children']['servertype_prod']['hosts'])
+        
+        # Validate server type placement
+        for server_name, (_, host_type) in self.efs_servers.items():
+            if server_name in servertype_dev and host_type != 'dev':
+                self.mismatches_servergroup.add(
+                    f"Mismatch: {server_name} {host_type} in servertype_dev but should be prod")
+            elif server_name in servertype_prod and host_type != 'prod':
+                self.mismatches_servergroup.add(
+                    f"Mismatch: {server_name} {host_type} in servertype_prod but should be dev")
+    
+    def validate_control_groups(self):
+        """Validate control group balancing and data center pairing."""
+        inventory = self.load_inventory()
+        controlgroup_a = inventory['all']['children']['controlgroup_a']['hosts']
+        controlgroup_b = inventory['all']['children']['controlgroup_b']['hosts']
+        
+        group_counts = {
+            'controlgroup_a': {'dev': [], 'prod': []},
+            'controlgroup_b': {'dev': [], 'prod': []}
+        }
+        data_center_pairs: Dict[str, Dict[str, Dict[str, List[str]]]] = {}
+        assigned_servers = set()
+        
+        # Organize servers by control group and data center
+        for server_name, (cell_name, host_type) in self.efs_servers.items():
+            if server_name in controlgroup_a:
+                control_group = 'controlgroup_a'
+            elif server_name in controlgroup_b:
+                control_group = 'controlgroup_b'
+            else:
+                continue
+                
+            group_counts[control_group][host_type].append((server_name, cell_name))
+            assigned_servers.add(server_name)
+            
+            if cell_name not in data_center_pairs:
+                data_center_pairs[cell_name] = {
+                    'controlgroup_a': {'dev': [], 'prod': []},
+                    'controlgroup_b': {'dev': [], 'prod': []}
+                }
+            data_center_pairs[cell_name][control_group][host_type].append(server_name)
+        
+        # Validate pairing per data center
+        for cell_name, groups in data_center_pairs.items():
+            a_dev = groups['controlgroup_a']['dev']
+            a_prod = groups['controlgroup_a']['prod']
+            b_dev = groups['controlgroup_b']['dev']
+            b_prod = groups['controlgroup_b']['prod']
+            
+            if len(a_dev) != len(a_prod) or len(b_dev) != len(b_prod):
+                self.mismatches.append(f"\nMismatch in data center {cell_name}:")
+                self.mismatches.append(
+                    f"controlgroup_a: {' '.join(f'{s} (dev)' for s in a_dev)} "
+                    f"{' '.join(f'{s} (prod)' for s in a_prod)}")
+                self.mismatches.append(
+                    f"controlgroup_b: {' '.join(f'{s} (dev)' for s in b_dev)} "
+                    f"{' '.join(f'{s} (prod)' for s in b_prod)}")
+        
+        # Validate total server count
+        if len(assigned_servers) != len(self.efs_servers):
+            self.mismatches.append(
+                f"Total server count mismatch: expected {len(self.efs_servers)}, "
+                f"but assigned {len(assigned_servers)}")
+            unassigned = [s for s in self.efs_servers if s not in assigned_servers]
+            self.mismatches.append(f"Unassigned servers: {' '.join(unassigned)}")
+    
+    def compare_inventory_with_efs(self):
+        """Main comparison logic between inventory and EFS data."""
+        inventory = self.load_inventory()
+        all_groups = inventory.get('all', {}).get('children', {})
+        
+        # Get all servers from inventory
+        inventory_servers = {}
+        processed_hosts = set()
+        
+        for group, group_data in all_groups.items():
+            if "hosts" in group_data and isinstance(group_data["hosts"], dict):
+                for server, server_info in group_data["hosts"].items():
+                    if isinstance(server_info, dict) and server not in processed_hosts:
+                        cells = {self.normalize_cell(c) for c in server_info.get("cells", [])}
+                        inventory_servers[server] = cells
+                        processed_hosts.add(server)
+        
+        # Compare servers
+        missing_servers = set(self.efs_servers.keys()) - set(inventory_servers.keys())
+        extra_servers = set(inventory_servers.keys()) - set(self.efs_servers.keys())
+        
+        if missing_servers:
+            print("\nMissing servers in inventory:")
+            print("=" * 60)
+            for server in sorted(missing_servers):
+                print(f" {server}")
+        
+        if extra_servers:
+            print("\nServers in inventory but not in EFS database:")
+            print("=" * 60)
+            for server in sorted(extra_servers):
+                print(f" {server}")
+        
+        # Compare cell assignments
+        for server, (efs_cell, _) in self.efs_servers.items():
+            group = self.determine_group_from_pattern(server)
+            inv_cells = inventory_servers.get(server, set())
+            
+            efs_cell_normalized = self.normalize_cell(efs_cell)
+            inv_cells_normalized = inv_cells
+            
+            if not inv_cells_normalized:
+                print(f"\nMismatch for server: {server} in group {group}:")
+                print(f" EFS Database: {efs_cell_normalized}")
+                print(f" Inventory: (New Server)")
+            elif efs_cell_normalized not in inv_cells_normalized:
+                print(f"\n{server} in group {group}:")
+                print(f" EFS Database: {efs_cell_normalized}")
+                print(f" Inventory: {inv_cells_normalized}")
+                print(f" Cell mismatch: Expected {efs_cell_normalized} not found in inventory cells")
+    
+    def print_validation_results(self):
+        """Print all validation results in organized format."""
+        if self.mismatches_servergroup:
+            print("\nServer Group Validation:")
+            print("=" * 60)
+            print("\n".join(sorted(self.mismatches_servergroup)))
+        else:
+            print("\n" + "=" * 60)
+            print("All servers are in the correct groups.")
+        
+        if self.mismatches:
+            print("\nControl Group Validation:")
+            print("=" * 60)
+            print("\n".join(self.mismatches))
+        else:
+            print("\n" + "=" * 60)
+            print("Control groups are correctly balanced for high availability.")
+    
+    def run_validation(self):
+        """Execute full validation workflow."""
+        self.efs_servers = self.load_efs_servers()
+        self.validate_server_placement()
+        self.validate_control_groups()
+        self.compare_inventory_with_efs()
+        self.print_validation_results()
+
+def main():
+    """Main execution function."""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    inventory_file = os.path.join(script_dir, '..', 'prod', 'inventory.prod.yaml')
+    
+    validator = EFSInventoryValidator(inventory_file)
+    validator.run_validation()
+
+if __name__ == "__main__":
+    main()
