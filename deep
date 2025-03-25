@@ -139,14 +139,14 @@ class InventoryValidator:
             b_dev = groups['controlgroup_b']['dev']
             b_prod = groups['controlgroup_b']['prod']
             
-            if len(a_dev) != len(a_prod) or len(b_dev) != len(b_prod):
-                self.mismatches.append(f"\nMismatch in data center {cell_name}:")
-                self.mismatches.append(
-                    f"controlgroup_a: {' '.join([f'{s} (dev)' for s in a_dev]} "
-                    f"{' '.join([f'{s} (prod)' for s in a_prod])}")
-                self.mismatches.append(
-                    f"controlgroup_b: {' '.join([f'{s} (dev)' for s in b_dev]} "
-                    f"{' '.join([f'{s} (prod)' for s in b_prod])}")
+if len(a_dev) != len(a_prod) or len(b_dev) != len(b_prod):
+    self.mismatches.append(f"\nMismatch in data center {cell_name}:")
+    self.mismatches.append(
+        f"controlgroup_a: {' '.join([f'{s} (dev)' for s in a_dev]} "
+        f"{' '.join([f'{s} (prod)' for s in a_prod])}")
+    self.mismatches.append(
+        f"controlgroup_b: {' '.join([f'{s} (dev)' for s in b_dev]} "
+        f"{' '.join([f'{s} (prod)' for s in b_prod])}")
         
         # Validate total server count
         if len(assigned_servers) != len(self.efs_servers):
