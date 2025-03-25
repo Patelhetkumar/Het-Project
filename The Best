@@ -1,4 +1,3 @@
-
 import yaml
 import re
 import os
@@ -6,8 +5,8 @@ import subprocess
 
 # Define the pattern-to-group mapping
 PATTERN_TO_GROUP = {
-    r"laau42efs.*": "l_aja_ausyb01sr1",
-    r"laauu1efs.*": "l_aja_ausy02sr1",
+    r"lauau2efs.*": "l_aja_ausyb01sr1",
+    r"lauau1cefs.*": "l_aja_ausy02sr1",
     r"lchhk01efs.*": "l_aja_cnhhk01",
     r"lchhk02efs.*": "l_aja_cnhhk02",
     r"lchhk07efs.*": "l_aja_inhche07sr1",
@@ -38,7 +37,7 @@ def get_efs_server_output():
 
     servers = []
     for line in result.stdout.strip().split("\n"):
-        parts = line. strip(). split(',')
+        parts = line.strip().split(',')
         if len(parts) >= 3:
             servers.append(parts)
 
@@ -209,7 +208,7 @@ def parse_inventory(file_path):
 
 def normalize_cell(cell_name):
     """Normalize cell names to remove inconsistencies (e.g., extra spaces, domain variations)."""
-    cell_name = cell_name. strip() # Remove leading/trailing spaces
+    cell_name = cell_name.strip() # Remove leading/trailing spaces
     cell_name = re.sub(r'\s+', '', cell_name) # Remove internal spaces
     cell_name = cell_name.replace(".m1.com", ".ml.com") # Standardize domain variation
     return cell_name
@@ -224,6 +223,7 @@ def compare_cells(efsservers_data, inventory_data):
         print("==========================================================")
         for server in missing_servers:
             print(f" {server}")
+
     if extra_servers:
         print("\nservers found in ax_inventories but not in Efs Database or efsserver.txt:")
         print("==========================================================")
