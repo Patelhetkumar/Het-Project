@@ -249,3 +249,30 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+######
+
+
+def load_efs_unique_servers():
+    """Load unique EFS servers from process output"""
+    servers = {}
+    efs_servers = get_efs_server_output()
+    for parts in efs_servers:
+        if len(parts) >= 3:
+            server_name, cell_name, host_type = [p.strip() for p in parts]
+            servers[server_name] = (cell_name, host_type)
+    return servers
+
+
+# In your validate_control_groups method (or equivalent):
+if len(controlgroup_a_dev) != len(controlgroup_a_prod) or len(controlgroup_b_dev) != len(controlgroup_b_prod):
+    self.mismatches.append(f"\nMismatch in data center {cell_name}:")
+    self.mismatches.append(
+        f"controlgroup_a: {' '.join(f'{s} (dev)' for s in controlgroup_a_dev)} "
+        f"{' '.join(f'{s} (prod)' for s in controlgroup_a_prod)}"
+    )
+    self.mismatches.append(
+        f"controlgroup_b: {' '.join(f'{s} (dev)' for s in controlgroup_b_dev)} "
+        f"{' '.join(f'{s} (prod)' for s in controlgroup_b_prod)}"
+    )
