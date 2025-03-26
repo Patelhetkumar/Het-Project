@@ -1,0 +1,14 @@
+import subprocess
+
+cmd = "efs display efsserver | sed -e '1,/^ ==* /d' | awk '{print $2 \", \" $1 \", \" $3}'"
+
+try:
+    # Run the command
+    result = subprocess.run(cmd, shell=True, text=True, capture_output=True, check=True)
+    
+    # Print the output
+    print("Command Output:\n", result.stdout)
+
+except subprocess.CalledProcessError as e:
+    print("Error executing command:", e)
+    print("Error Output:", e.stderr)
